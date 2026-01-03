@@ -13,39 +13,48 @@ def analyze_video_core(video_bytes: bytes):
         video_path = tmp.name
 
     cap = cv2.VideoCapture(video_path)
-    frame_count = 0
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    if total_frames <= 0:
+        cap.release()
+        os.remove(video_path)
+        return {"status": "error", "confidence": 0.0}
+
+    idxs = np.linspace(0, total_frames - 1, 12).astype(int)
     scores = []
 
-    while cap.isOpened() and frame_count < 10:
+    for idx in idxs:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
         ret, frame = cap.read()
         if not ret:
-            break
+            continue
 
-        frame_count += 1
-
-        # ✅ OpenCV → PIL conversion
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame_pil = Image.fromarray(frame_rgb)
-
         result = analyze_image(frame_pil)
         scores.append(result["confidence"])
 
     cap.release()
     os.remove(video_path)
 
-    avg_score = float(np.mean(scores)) if scores else 0.0
+    scores = np.array(scores)
+
+    if len(scores) == 0:
+        return {"status": "error", "confidence": 0.0}
+
+    suspicious_score = np.percentile(scores, 75)
 
     verdict = (
-        "Likely Fake" if avg_score > 0.7
-        else "Suspicious" if avg_score > 0.4
+        "Likely Fake" if suspicious_score > 0.60
+        else "Suspicious" if suspicious_score > 0.40
         else "Real"
     )
 
     return {
         "status": "completed",
         "verdict": verdict,
-        "confidence": round(avg_score, 4),
-        "frames_analyzed": frame_count
+        "confidence": round(float(suspicious_score), 4),
+        "frames_analyzed": len(scores)
     }
 
 
